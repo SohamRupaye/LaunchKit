@@ -1,0 +1,63 @@
+# LaunchKit config — example
+# Copy this file to launchkit.yaml and edit to match your project.
+# Full reference: docs/config-reference.md
+
+version: "1"
+
+project:
+  name: myapp
+  registry: ghcr.io/yourname/myapp        # or docker.io/yourname
+
+services:
+  api:
+    lang: python
+    framework: fastapi
+    port: 8000
+    healthcheck: /health
+    env_file: .env
+    scale:
+      min: 1
+      max: 5
+      cpu_threshold: 70
+
+  worker:
+    lang: python
+    type: worker                           # no HTTP port, background process
+    depends_on: [redis]
+
+  frontend:
+    lang: node
+    framework: nextjs
+    port: 3000
+    healthcheck: /api/health
+    scale:
+      min: 1
+      max: 3
+      cpu_threshold: 80
+
+infrastructure:
+  redis:
+    type: redis
+    version: "7"
+
+  postgres:
+    type: postgres
+    version: "16"
+
+ci:
+  provider: github                         # github | gitlab
+  affected_only: true                      # only run CI for changed services (monorepo)
+  steps:
+    - lint
+    - test
+    - build
+    - push
+  registry_secret: REGISTRY_TOKEN
+
+deploy:
+  target: both                             # kubernetes | compose | both
+  namespace: production
+  ingress:
+    enabled: true
+    host: myapp.example.com
+    tls: true
