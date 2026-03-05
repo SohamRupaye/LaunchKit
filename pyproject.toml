@@ -1,0 +1,69 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "launchkit"
+version = "0.1.0"
+description = "One config file. Production-ready output. No vendor lock-in."
+readme = "readme.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+keywords = ["devops", "docker", "kubernetes", "ci-cd", "deployment", "generator"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: System :: Systems Administration",
+]
+
+dependencies = [
+    "click>=8.1",
+    "pyyaml>=6.0",
+    "rich>=13.0",
+    "pydantic>=2.0",
+    "jinja2>=3.1",
+    "jsonschema>=4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "pytest-cov>=4.1",
+    "ruff>=0.1",
+    "mypy>=1.5",
+    "types-PyYAML",
+    "types-jsonschema",
+]
+release = [
+    "build>=1.2",
+    "twine>=5.1",
+]
+
+[project.scripts]
+launchkit = "launchkit.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/SohamRupaye/launchkit"
+Documentation = "https://github.com/SohamRupaye/launchkit/tree/main/docs"
+Issues = "https://github.com/SohamRupaye/launchkit/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/launchkit"]
+
+[tool.ruff]
+src = ["src"]
+line-length = 100
+select = ["E", "F", "I", "UP"]
+
+[tool.mypy]
+strict = true
+python_version = "3.10"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--cov=launchkit --cov-report=term-missing"

@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# LaunchKit generated output (in this repo only — users should commit theirs)
+# Uncomment if you want to ignore generated output in examples:
+# examples/*/Dockerfile
+# examples/*/docker-compose.yml
+# examples/*/.github/
+# examples/*/k8s/
