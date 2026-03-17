@@ -1,0 +1,98 @@
+# Example: Mixed Stack — Real Production Deployment
+# Python API + Node.js frontend + Go worker — the full monorepo experience.
+# Demonstrates: multi-lang, resource profiles, environments, nginx, ingress.
+#
+# Try:
+#   launchkit generate --config examples/mixed-stack/launchkit.yaml --dry-run
+#   launchkit generate --config examples/mixed-stack/launchkit.yaml --env staging --only k8s
+#   launchkit lint --config examples/mixed-stack/launchkit.yaml
+
+version: "1"
+
+project:
+  name: mixed-app
+  registry: ghcr.io/yourname/mixed-app
+
+services:
+  api:
+    lang: python
+    framework: fastapi
+    port: 8000
+    healthcheck: /health
+    env_file: .env
+    depends_on: [postgres, redis]
+    resources:
+      profile: standard-api
+      cpu_request: 100m
+      cpu_limit: 500m
+      memory_request: 128Mi
+      memory_limit: 512Mi
+    scale:
+      min: 2
+      max: 10
+      cpu_threshold: 60
+      memory_threshold: 80
+
+  frontend:
+    lang: node
+    framework: nextjs
+    port: 3000
+    healthcheck: /api/health
+    resources:
+      profile: frontend
+      cpu_request: 50m
+      cpu_limit: 200m
+      memory_request: 64Mi
+      memory_limit: 256Mi
+    scale:
+      min: 1
+      max: 5
+      cpu_threshold: 70
+
+  processor:
+    lang: go
+    type: worker
+    depends_on: [redis]
+    resources:
+      profile: lightweight-api
+      cpu_request: 50m
+      cpu_limit: 200m
+      memory_request: 64Mi
+      memory_limit: 256Mi
+
+infrastructure:
+  postgres:
+    type: postgres
+    version: "16"
+
+  redis:
+    type: redis
+    version: "7"
+
+environments:
+  staging:
+    namespace: staging
+    domain: staging.mixed-app.dev
+    scale:
+      max: 2
+  production:
+    namespace: production
+    domain: mixed-app.dev
+    tls: true
+    replicas: 2
+    scale:
+      max: 10
+
+ci:
+  provider: github
+  affected_only: true
+  branches: [main]
+  steps: [lint, test, build, push]
+
+deploy:
+  target: both
+  namespace: production
+  ingress:
+    enabled: true
+    host: mixed-app.dev
+    tls: true
