@@ -1,0 +1,53 @@
+name: Real-World Validation
+description: Report what LaunchKit inferred on a repository it was not built against.
+title: "real-world validation: "
+labels:
+  - validation
+body:
+  - type: textarea
+    id: repo-shape
+    attributes:
+      label: Repository shape
+      description: Describe the repo at a high level. Include languages, service layout, and key framework signals.
+    validations:
+      required: true
+
+  - type: textarea
+    id: commands
+    attributes:
+      label: Commands and output
+      description: Paste the output from `launchkit init` and `launchkit generate`, or attach a gist.
+    validations:
+      required: true
+
+  - type: textarea
+    id: generated-config
+    attributes:
+      label: Generated launchkit.yaml
+      description: Paste the generated config if it is safe to share.
+    validations:
+      required: false
+
+  - type: textarea
+    id: incorrect-inference
+    attributes:
+      label: What LaunchKit got wrong
+      description: Call out the specific detector or generated output mismatch.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-result
+    attributes:
+      label: Expected result
+      description: Describe the correct language, framework, service type, ports, or generated files.
+    validations:
+      required: true
+
+  - type: input
+    id: reproduction
+    attributes:
+      label: Can maintainers reproduce this locally?
+      description: Link the repo if public, or say private if it cannot be shared.
+    validations:
+      required: true
