@@ -1,0 +1,44 @@
+# Example: Node.js Monorepo
+# A Next.js frontend and an Express API.
+# Run: launchkit generate --config examples/monorepo-node/launchkit.yaml --dry-run
+
+version: "1"
+
+project:
+  name: node-monorepo
+  registry: ghcr.io/yourname/node-monorepo
+
+services:
+  frontend:
+    lang: node
+    framework: nextjs
+    port: 3000
+    healthcheck: /api/health
+    scale:
+      min: 1
+      max: 3
+      cpu_threshold: 80
+
+  api:
+    lang: node
+    framework: express
+    port: 4000
+    healthcheck: /health
+    scale:
+      min: 1
+      max: 5
+      cpu_threshold: 70
+
+infrastructure:
+  postgres:
+    type: postgres
+    version: "16"
+
+ci:
+  provider: github
+  affected_only: true
+  steps: [test, build, push]
+
+deploy:
+  target: kubernetes
+  namespace: production

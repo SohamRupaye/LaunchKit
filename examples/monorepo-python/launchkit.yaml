@@ -1,0 +1,80 @@
+# Example: Python Monorepo — Full Production Setup
+# Two Python services — an API server and a background worker.
+# Demonstrates: environments, resource profiles, nginx, secrets, linting.
+#
+# Try:
+#   launchkit generate --config examples/monorepo-python/launchkit.yaml --dry-run
+#   launchkit generate --config examples/monorepo-python/launchkit.yaml --env staging --only k8s
+#   launchkit lint --config examples/monorepo-python/launchkit.yaml
+
+version: "1"
+
+project:
+  name: python-monorepo
+  registry: ghcr.io/yourname/python-monorepo
+
+services:
+  api:
+    lang: python
+    framework: fastapi
+    port: 8000
+    healthcheck: /health
+    env_file: .env
+    resources:
+      profile: standard-api
+      cpu_request: 100m
+      cpu_limit: 500m
+      memory_request: 128Mi
+      memory_limit: 512Mi
+    scale:
+      min: 2
+      max: 5
+      cpu_threshold: 70
+
+  worker:
+    lang: python
+    type: worker
+    depends_on: [redis]
+    resources:
+      profile: worker
+      cpu_request: 200m
+      cpu_limit: 1000m
+      memory_request: 256Mi
+      memory_limit: 1Gi
+    scale:
+      min: 1
+      max: 5
+      cpu_threshold: 75
+
+infrastructure:
+  redis:
+    type: redis
+    version: "7"
+
+environments:
+  staging:
+    namespace: staging
+    domain: staging.python-monorepo.dev
+    scale:
+      max: 2
+  production:
+    namespace: production
+    domain: python-monorepo.dev
+    tls: true
+    replicas: 2
+    scale:
+      max: 10
+
+ci:
+  provider: github
+  affected_only: true
+  branches: [main]
+  steps: [lint, test, build, push]
+
+deploy:
+  target: both
+  namespace: production
+  ingress:
+    enabled: true
+    host: python-monorepo.dev
+    tls: true
