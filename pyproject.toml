@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "launchkit"
+name = "launchkit-cli"
 version = "0.1.0"
 description = "One config file. Production-ready output. No vendor lock-in."
 readme = "readme.md"
