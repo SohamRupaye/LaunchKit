@@ -3,25 +3,18 @@
 from __future__ import annotations
 
 import shutil
-import subprocess
 
 from rich.console import Console
 from rich.table import Table
 
-from launchkit.utils.printer import print_header, print_success, print_warning
-
-
-# (command, display_name, version_args, purpose)
-# version_args overrides the default `--version` flag for tools that use different conventions.
-TOOLS: list[tuple[str, str, list[str] | None, str]] = [
-    ("docker", "Docker", None, "Required for building container images"),
-    ("docker-compose", "Docker Compose", None, "Required for docker-compose output (or use `docker compose`)"),
-    ("kubectl", "kubectl", ["kubectl", "version", "--client", "--short"], "Required for Kubernetes deployments"),
-    ("python3", "Python 3", None, "Used by LaunchKit itself"),
-    ("node", "Node.js", ["node", "--version"], "Needed for Node.js service builds"),
-    ("go", "Go", ["go", "version"], "Needed for Go service builds"),
-    ("git", "Git", None, "Used for version detection and CI"),
-]
+from launchkit.core.tooling import (
+    CORE_TOOLS,
+    VERIFY_TOOLS,
+    Tool,
+    docker_compose_cmd,
+    tool_version,
+)
+from launchkit.utils.printer import print_header, print_info, print_success, print_warning
 
 
 def run_doctor(console: Console) -> None:
@@ -35,62 +28,60 @@ def run_doctor(console: Console) -> None:
     table.add_column("Purpose", style="dim")
 
     all_ok = True
-
-    for cmd, display_name, version_args, purpose in TOOLS:
-        path = shutil.which(cmd)
-        if path:
-            if version_args:
-                version = _get_version_args(version_args)
-            else:
-                version = _get_version(cmd)
-            table.add_row(display_name, "[green]✔ found[/green]", version, purpose)
-        else:
-            # docker-compose might be a docker subcommand
-            if cmd == "docker-compose" and shutil.which("docker"):
-                version = _get_version_args(["docker", "compose", "version"])
-                if version:
-                    table.add_row(
-                        display_name,
-                        "[green]✔ found[/green]",
-                        f"(docker compose) {version}",
-                        purpose,
-                    )
-                    continue
-
-            table.add_row(display_name, "[yellow]✘ not found[/yellow]", "—", purpose)
+    for tool in CORE_TOOLS:
+        if not _add_tool_row(table, tool):
             all_ok = False
 
     console.print()
     console.print(table)
+
+    # Verification tools get their own section — all optional, they unlock
+    # deeper `launchkit verify` checks.
+    verify_table = Table(show_lines=False, title="Verification tools (optional)")
+    verify_table.add_column("Tool", style="bold")
+    verify_table.add_column("Status", justify="center")
+    verify_table.add_column("Version")
+    verify_table.add_column("Unlocks", style="dim")
+    for tool in VERIFY_TOOLS:
+        _add_tool_row(verify_table, tool)
+
+    console.print()
+    console.print(verify_table)
     console.print()
 
     if all_ok:
-        print_success(console, "All tools found — you're ready to go!")
+        print_success(console, "All core tools found — you're ready to go!")
     else:
         print_warning(
             console,
             "Some tools are missing. LaunchKit can still generate files, "
             "but you'll need the relevant tools to build/deploy.",
         )
+    print_info(
+        console,
+        "Install hadolint / kubeconform / actionlint to unlock `launchkit verify`.",
+    )
 
 
-def _get_version(cmd: str) -> str:
-    """Try to get a version string from a command using --version."""
-    return _get_version_args([cmd, "--version"])
+def _add_tool_row(table: Table, tool: Tool) -> bool:
+    """Add a status row for one tool. Returns True when the tool is available."""
+    if shutil.which(tool.cmd):
+        version = tool_version(tool.cmd, tool.version_args)
+        table.add_row(tool.display_name, "[green]✔ found[/green]", version, tool.purpose)
+        return True
 
+    # docker-compose might be available as a docker subcommand.
+    if tool.cmd == "docker-compose":
+        compose = docker_compose_cmd()
+        if compose:
+            version = tool_version(compose[0], compose + ["version"])
+            table.add_row(
+                tool.display_name,
+                "[green]✔ found[/green]",
+                f"(docker compose) {version}",
+                tool.purpose,
+            )
+            return True
 
-def _get_version_args(args: list[str]) -> str:
-    """Run a command with args and return the first line of output."""
-    try:
-        result = subprocess.run(
-            args,
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        output = result.stdout.strip() or result.stderr.strip()
-        # Return first line, truncated
-        first_line = output.split("\n")[0]
-        return first_line[:80] if first_line else "installed"
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        return "installed"
+    table.add_row(tool.display_name, "[yellow]✘ not found[/yellow]", "—", tool.purpose)
+    return False

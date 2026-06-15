@@ -43,7 +43,7 @@ class DiffEngine:
             raise SystemExit(1)
 
         root = Path(self.config_path).resolve().parent
-        generated_files = self._collect_generated(cfg, root)
+        generated_files = collect_generated(cfg, root)
 
         total_diffs = 0
         for filepath, content in generated_files.items():
@@ -60,51 +60,59 @@ class DiffEngine:
         else:
             print_info(self.console, f"{total_diffs} file(s) would change. Run `launchkit generate` to apply.")
 
-    def _collect_generated(
-        self, cfg: LaunchKitConfig, root: Path
-    ) -> dict[Path, str]:
-        files: dict[Path, str] = {}
-        multi = len(cfg.services) > 1
+def collect_generated(cfg: LaunchKitConfig, root: Path) -> dict[Path, str]:
+    """
+    Re-generate every output file in memory as a {path: content} map.
 
-        # Dockerfiles
+    This is the single deterministic source of "what LaunchKit would write",
+    reused by `diff` and `verify` so they never drift from `generate`.
+    """
+    from launchkit.utils.templates import set_template_override
+    set_template_override(root)
+
+    files: dict[Path, str] = {}
+    multi = len(cfg.services) > 1
+
+    # Dockerfiles
+    for name, service in cfg.services.items():
+        if multi:
+            docker_path = root / "services" / name / "Dockerfile"
+        else:
+            docker_path = root / "Dockerfile"
+        docker_content = _build_dockerfile(name, service, docker_path.parent)
+        files[docker_path] = docker_content
+
+    # docker-compose
+    if cfg.deploy.target in (DeployTarget.COMPOSE, DeployTarget.BOTH):
+        files[root / "docker-compose.yml"] = generate_compose(cfg)
+
+    # CI
+    if cfg.ci.provider == CIProvider.GITHUB:
+        files[root / ".github" / "workflows" / "ci.yml"] = generate_github_actions(cfg)
+    elif cfg.ci.provider == CIProvider.GITLAB:
+        files[root / ".gitlab-ci.yml"] = generate_gitlab_ci(cfg)
+
+    # K8s
+    if cfg.deploy.target in (DeployTarget.KUBERNETES, DeployTarget.BOTH):
         for name, service in cfg.services.items():
-            docker_content = _build_dockerfile(name, service)
-            if multi:
-                files[root / "services" / name / "Dockerfile"] = docker_content
-            else:
-                files[root / "Dockerfile"] = docker_content
+            files[root / "k8s" / name / "deployment.yaml"] = generate_deployment(name, service, cfg)
+            if service.type == ServiceType.WEB and service.port:
+                files[root / "k8s" / name / "service.yaml"] = generate_service(name, service, cfg)
+            if service.scale.max > 1:
+                files[root / "k8s" / name / "hpa.yaml"] = generate_hpa(name, service, cfg)
+            # Secrets hints
+            secrets = generate_secrets_hint(name, service, cfg, root)
+            if secrets:
+                files[root / "k8s" / name / "secrets-hint.yaml"] = secrets
+        if cfg.deploy.ingress.enabled:
+            files[root / "k8s" / "ingress.yaml"] = generate_ingress(cfg)
 
-        # docker-compose
-        if cfg.deploy.target in (DeployTarget.COMPOSE, DeployTarget.BOTH):
-            files[root / "docker-compose.yml"] = generate_compose(cfg)
-
-        # CI
-        if cfg.ci.provider == CIProvider.GITHUB:
-            files[root / ".github" / "workflows" / "ci.yml"] = generate_github_actions(cfg)
-        elif cfg.ci.provider == CIProvider.GITLAB:
-            files[root / ".gitlab-ci.yml"] = generate_gitlab_ci(cfg)
-
-        # K8s
+    # Nginx
+    if cfg.deploy.nginx.enabled:
+        nginx_conf = generate_nginx_conf(cfg)
+        if nginx_conf:
+            files[root / "nginx" / "nginx.conf"] = nginx_conf
         if cfg.deploy.target in (DeployTarget.KUBERNETES, DeployTarget.BOTH):
-            for name, service in cfg.services.items():
-                files[root / "k8s" / name / "deployment.yaml"] = generate_deployment(name, service, cfg)
-                if service.type == ServiceType.WEB and service.port:
-                    files[root / "k8s" / name / "service.yaml"] = generate_service(name, service, cfg)
-                if service.scale.max > 1:
-                    files[root / "k8s" / name / "hpa.yaml"] = generate_hpa(name, service, cfg)
-                # Secrets hints
-                secrets = generate_secrets_hint(name, service, cfg, root)
-                if secrets:
-                    files[root / "k8s" / name / "secrets-hint.yaml"] = secrets
-            if cfg.deploy.ingress.enabled:
-                files[root / "k8s" / "ingress.yaml"] = generate_ingress(cfg)
+            files[root / "k8s" / "nginx" / "nginx.yaml"] = generate_nginx_k8s(cfg)
 
-        # Nginx
-        if cfg.deploy.nginx.enabled:
-            nginx_conf = generate_nginx_conf(cfg)
-            if nginx_conf:
-                files[root / "nginx" / "nginx.conf"] = nginx_conf
-            if cfg.deploy.target in (DeployTarget.KUBERNETES, DeployTarget.BOTH):
-                files[root / "k8s" / "nginx" / "nginx.yaml"] = generate_nginx_k8s(cfg)
-
-        return files
+    return files
