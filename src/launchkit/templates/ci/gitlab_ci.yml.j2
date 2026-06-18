@@ -5,6 +5,9 @@ stages:
 {% if "test" in steps %}
   - test
 {% endif %}
+{% if "verify" in steps %}
+  - verify
+{% endif %}
 {% if "build" in steps or "push" in steps %}
   - build
 {% endif %}
@@ -12,6 +15,16 @@ stages:
 variables:
   REGISTRY: {{ registry }}
 
+{% if "verify" in steps %}
+verify-config:
+  stage: verify
+  image: python:3.12-slim
+  # Proves the generated deployment is valid before build. Requires launchkit-cli on PyPI.
+  script:
+    - pip install launchkit-cli
+    - launchkit verify --level static
+
+{% endif %}
 {% for svc_name, svc in service_configs.items() %}
 {% if "test" in steps %}
 test-{{ svc_name }}:
@@ -19,26 +32,53 @@ test-{{ svc_name }}:
   {% if svc.lang.value == "python" %}
   image: python:3.12-slim
   script:
-    - cd services/{{ svc_name }}
+    - cd {{ contexts[svc_name] }}
     - pip install -r requirements.txt
     - pytest
   {% elif svc.lang.value == "node" %}
   image: node:20-alpine
   script:
-    - cd services/{{ svc_name }}
+    - cd {{ contexts[svc_name] }}
     - npm ci
     - npm test
   {% elif svc.lang.value == "go" %}
   image: golang:1.22-alpine
   script:
-    - cd services/{{ svc_name }}
+    - cd {{ contexts[svc_name] }}
     - go test ./...
+  {% elif svc.lang.value == "java" %}
+  image: maven:3.9-eclipse-temurin-21
+  script:
+    - cd {{ contexts[svc_name] }}
+    # Adjust for your build tool (Gradle: ./gradlew test)
+    - mvn -B test
+  {% elif svc.lang.value == "rust" %}
+  image: rust:1-slim
+  script:
+    - cd {{ contexts[svc_name] }}
+    - cargo test --all
+  {% elif svc.lang.value == "ruby" %}
+  image: ruby:3.3
+  script:
+    - cd {{ contexts[svc_name] }}
+    - bundle install
+    - bundle exec rake
+  {% elif svc.lang.value == "php" %}
+  image: php:8.3-cli
+  script:
+    - cd {{ contexts[svc_name] }}
+    - composer install --no-interaction --prefer-dist
+    - vendor/bin/phpunit
+  {% elif svc.lang.value == "dotnet" %}
+  image: mcr.microsoft.com/dotnet/sdk:8.0
+  script:
+    - cd {{ contexts[svc_name] }}
+    - dotnet test
   {% endif %}
   {% if affected_only and services | length > 1 %}
   rules:
     - changes:
-        - services/{{ svc_name }}/**/*
-        - apps/{{ svc_name }}/**/*
+        - {{ contexts[svc_name] }}/**/*
   {% endif %}
 
 {% endif %}
@@ -53,13 +93,12 @@ build-{{ svc_name }}:
   before_script:
     - docker login -u $CI_REGISTRY_USER -p ${{ secret }} $CI_REGISTRY
   script:
-    - docker build -t $REGISTRY/{{ svc_name }}:$CI_COMMIT_SHA services/{{ svc_name }}
+    - docker build -t $REGISTRY/{{ svc_name }}:$CI_COMMIT_SHA {{ contexts[svc_name] }}
     - docker push $REGISTRY/{{ svc_name }}:$CI_COMMIT_SHA
   {% if affected_only and services | length > 1 %}
   rules:
     - changes:
-        - services/{{ svc_name }}/**/*
-        - apps/{{ svc_name }}/**/*
+        - {{ contexts[svc_name] }}/**/*
   {% endif %}
 
 {% endif %}

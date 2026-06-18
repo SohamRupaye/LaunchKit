@@ -29,8 +29,7 @@ jobs:
           filters: |
           {% for svc in services %}
             {{ svc }}:
-              - 'services/{{ svc }}/**'
-              - 'apps/{{ svc }}/**'
+              - '{{ contexts[svc] }}/**'
           {% endfor %}
 
 {% endif %}
@@ -64,7 +63,7 @@ jobs:
 
       - name: Run tests
         run: |
-          cd services/{{ svc_name }}
+          cd {{ contexts[svc_name] }}
           pip install -r requirements.txt
           pytest
 
@@ -77,7 +76,7 @@ jobs:
 
       - name: Run tests
         run: |
-          cd services/{{ svc_name }}
+          cd {{ contexts[svc_name] }}
           npm ci
           npm test
 
@@ -89,16 +88,83 @@ jobs:
 
       - name: Run tests
         run: |
-          cd services/{{ svc_name }}
+          cd {{ contexts[svc_name] }}
           go test ./...
 
+    {% elif svc.lang.value == "java" %}
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'maven'
+
+      - name: Run tests
+        run: |
+          cd {{ contexts[svc_name] }}
+          # Adjust for your build tool (Gradle: ./gradlew test)
+          mvn -B test
+
+    {% elif svc.lang.value == "rust" %}
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run tests
+        run: |
+          cd {{ contexts[svc_name] }}
+          cargo test --all
+
+    {% elif svc.lang.value == "ruby" %}
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+
+      - name: Run tests
+        run: |
+          cd {{ contexts[svc_name] }}
+          bundle exec rake
+
+    {% elif svc.lang.value == "php" %}
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+
+      - name: Run tests
+        run: |
+          cd {{ contexts[svc_name] }}
+          composer install --no-interaction --prefer-dist
+          vendor/bin/phpunit
+
+    {% elif svc.lang.value == "dotnet" %}
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0'
+
+      - name: Run tests
+        run: |
+          cd {{ contexts[svc_name] }}
+          dotnet test
+
     {% endif %}
+  {% endif %}
+  {% if "verify" in steps %}
+      - name: Verify generated deployment (LaunchKit)
+        # Proves the generated Dockerfile/manifests/CI are valid before we build
+        # and push. Requires launchkit-cli on PyPI.
+        run: |
+          python3 -m pip install --quiet launchkit-cli
+          launchkit verify --level static
+
   {% endif %}
   {% if "build" in steps %}
       - name: Build and push image
         uses: docker/build-push-action@v5
         with:
-          context: services/{{ svc_name }}
+          context: {{ contexts[svc_name] }}
           push: ${{ "{{" }} github.ref == 'refs/heads/{{ default_branch }}' {{ "}}" }}
           tags: {{ registry }}/{{ svc_name }}:${{ "{{" }} github.sha {{ "}}" }}
           cache-from: type=gha

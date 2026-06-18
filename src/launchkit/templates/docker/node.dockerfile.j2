@@ -29,4 +29,8 @@ USER appuser
 
 EXPOSE {{ port }}
 
+{% if command %}
+CMD {{ command | tojson }}
+{% else %}
 CMD ["node", "index.js"]
+{% endif %}

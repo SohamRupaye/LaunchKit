@@ -16,4 +16,6 @@ def generate_node_dockerfile(name: str, service: ServiceConfig) -> str:
     else:
         template = "docker/node.dockerfile.j2"
 
-    return render_template(template, name=name, framework=framework, port=port)
+    return render_template(
+        template, name=name, framework=framework, port=port, command=service.command
+    )
