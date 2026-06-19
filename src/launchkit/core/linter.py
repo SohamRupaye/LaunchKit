@@ -37,6 +37,7 @@ def run_lint(cfg: LaunchKitConfig, root: Path | None = None) -> list[LintResult]
         results += _check_no_resource_limits(name, service)
         results += _check_latest_tag(name, service, cfg)
         results += _check_no_healthcheck(name, service)
+        results += _check_measured_limit_too_low(name, service)
         results += _check_memory_mismatch(name, service)
         results += _check_worker_has_probe(name, service)
         results += _check_single_replica_production(name, service, cfg)
@@ -92,6 +93,24 @@ def _check_no_healthcheck(name: str, svc: ServiceConfig) -> list[LintResult]:
             message="No healthcheck endpoint defined. "
                     "K8s readiness probe will fail silently — pods may receive traffic before the app is ready. "
                     "Add `healthcheck: /health` to your service config.",
+        )]
+    return []
+
+
+def _check_measured_limit_too_low(name: str, svc: ServiceConfig) -> list[LintResult]:
+    """If a service was measured, its memory_limit must clear the observed peak."""
+    peak = svc.resources.measured_peak_mi
+    if peak is None:
+        return []
+    limit_mi = _parse_memory_mi(svc.resources.memory_limit)
+    if limit_mi and limit_mi < peak:
+        return [LintResult(
+            rule="measured-limit-too-low",
+            severity=Severity.ERROR,
+            service=name,
+            message=f"memory_limit is {svc.resources.memory_limit} but `launchkit measure` "
+                    f"observed a peak of {peak}Mi. This container will OOMKill on startup — "
+                    f"raise memory_limit above {peak}Mi.",
         )]
     return []
 

@@ -46,13 +46,19 @@ class ScaleConfig(BaseModel):
 
 
 class ResourceConfig(BaseModel):
-    """Resource requests and limits for K8s deployments (inferred or manual)."""
+    """Resource requests and limits for K8s deployments (inferred, measured, or manual)."""
 
     profile: str | None = None
     cpu_request: str = "100m"
     cpu_limit: str = "500m"
     memory_request: str = "128Mi"
     memory_limit: str = "512Mi"
+    # Provenance: "inferred" (heuristic profile), "measured" (launchkit measure),
+    # or "manual" (hand-edited — never overwritten by measure).
+    source: str = "inferred"
+    # Peak RSS (MiB) observed by `launchkit measure`, if any. Used by the linter
+    # to catch memory_limit values below the container's measured boot footprint.
+    measured_peak_mi: int | None = None
 
 
 class ServiceConfig(BaseModel):
@@ -60,6 +66,7 @@ class ServiceConfig(BaseModel):
     framework: str | None = None
     port: int | None = None
     type: ServiceType = ServiceType.WEB
+    command: list[str] | None = None
     healthcheck: str | None = None
     env_file: str | None = None
     depends_on: list[str] = Field(default_factory=list)

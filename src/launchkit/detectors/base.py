@@ -16,6 +16,7 @@ class DetectedService:
     port: int | None = None
     service_type: str = "web"
     path: str = "."
+    command: list[str] | None = None
 
 
 class BaseDetector:
@@ -328,6 +329,7 @@ def detect_services(root: Path) -> list[DetectedService]:
                     result = detector.detect(service_dir, service_dir.name)
                     if result:
                         result.path = str(service_dir.relative_to(root))
+                        _populate_command(result, service_dir)
                         detected.append(result)
                         break
 
@@ -336,8 +338,22 @@ def detect_services(root: Path) -> list[DetectedService]:
         for detector in DETECTORS:
             result = detector.detect(root, root.name)
             if result:
+                _populate_command(result, root)
                 detected.append(result)
                 break
 
     return detected
+
+
+def _populate_command(result: DetectedService, service_dir: Path) -> None:
+    """Attach the detected start command to a service (best-effort)."""
+    from launchkit.detectors.entrypoint import detect_command
+
+    result.command = detect_command(
+        service_dir=service_dir,
+        lang=result.lang,
+        framework=result.framework,
+        service_type=result.service_type,
+        port=result.port,
+    )
 

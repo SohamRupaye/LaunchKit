@@ -130,6 +130,22 @@ class InitEngine:
         project_name = self.root.name.lower().replace(" ", "-")
         registry = ctx.registry_hint or f"ghcr.io/yourname/{project_name}"
 
+        # Clamp the detected CI provider to one the config schema supports.
+        # `detect_ci_provider` can return jenkins/circleci/travis/azure, but only
+        # github/gitlab/bitbucket generate — writing an unsupported value here would
+        # make the very next `generate` fail schema validation.
+        detected_provider = ctx.ci_provider
+        supported_providers = {p.value for p in CIProvider}
+        if detected_provider not in supported_providers:
+            print_warning(
+                self.console,
+                f"Detected CI provider '{detected_provider}' is not yet supported — "
+                f"defaulting to 'github'. Change `ci.provider` in launchkit.yaml if needed.",
+            )
+            ci_provider = "github"
+        else:
+            ci_provider = detected_provider
+
         svc_dict: dict = {}
         for s in services:
             service_path = self.root / s.path if s.path != "." else self.root
@@ -147,6 +163,8 @@ class InitEngine:
                 entry["port"] = s.port
             if s.service_type == "worker":
                 entry["type"] = "worker"
+            if s.command:
+                entry["command"] = s.command
             if s.service_type == "web":
                 entry["healthcheck"] = "/health"
 
@@ -167,7 +185,11 @@ class InitEngine:
 
             svc_dict[s.name] = entry
 
-        steps = ["lint", "test", "build", "push"] if ctx.has_tests else ["build", "push"]
+        # `verify` gates the build/push on LaunchKit proving the generated output.
+        if ctx.has_tests:
+            steps = ["lint", "test", "verify", "build", "push"]
+        else:
+            steps = ["verify", "build", "push"]
 
         # Infer target infra
         deploy_target = self.target
@@ -199,7 +221,7 @@ class InitEngine:
                 },
             },
             "ci": {
-                "provider": ctx.ci_provider,
+                "provider": ci_provider,
                 "affected_only": len(services) > 1,
                 "branches": ctx.branches,
                 "steps": steps,
@@ -253,6 +275,10 @@ class GenerateEngine:
             except ValueError as e:
                 print_error(self.console, str(e))
                 raise SystemExit(1)
+
+        # Honor any project-local template overrides (.launchkit/templates/).
+        from launchkit.utils.templates import set_template_override
+        set_template_override(Path(self.config_path).resolve().parent)
 
         num_services = len(cfg.services)
         print_info(
@@ -309,7 +335,7 @@ class GenerateEngine:
                 results.append((rel, "skipped"))
                 continue
 
-            dockerfile = _build_dockerfile(name, service)
+            dockerfile = _build_dockerfile(name, service, filepath.parent)
             rel = str(filepath.relative_to(root))
             wrote = safe_write(filepath, dockerfile, dry_run=self.dry_run)
             status = ("dry-run" if self.dry_run else "generated") if wrote else "skipped"
@@ -456,10 +482,12 @@ class GenerateEngine:
 # ── Dockerfile builder ───────────────────────────────────────────────────────
 
 
-def _build_dockerfile(name: str, service: ServiceConfig) -> str:
+def _build_dockerfile(
+    name: str, service: ServiceConfig, service_dir: Path | None = None
+) -> str:
     lang = service.lang.value
     if lang == "python":
-        return generate_python_dockerfile(name, service)
+        return generate_python_dockerfile(name, service, service_dir)
     elif lang == "node":
         return generate_node_dockerfile(name, service)
     elif lang == "go":

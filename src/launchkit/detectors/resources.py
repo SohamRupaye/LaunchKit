@@ -22,6 +22,47 @@ class ResourceProfile:
     memory_threshold: int | None = None
 
 
+# ── Bucket ladders (for measured resources) ──────────────────────────────────
+#
+# Measured numbers vary run-to-run and by host arch, so we never write a raw
+# measurement into config. We round UP to the next bucket and add headroom — the
+# same project then yields the same bucket across runs, keeping output deterministic.
+
+MEM_BUCKETS_MI: list[int] = [64, 128, 256, 512, 1024, 2048, 4096, 8192]
+# CPU buckets in millicores.
+CPU_BUCKETS_M: list[int] = [50, 100, 250, 500, 1000, 2000, 4000]
+
+
+def bucket_up(value: float, ladder: list[int]) -> int:
+    """Round a value up to the next bucket on the ladder (clamped to the top)."""
+    for step in ladder:
+        if value <= step:
+            return step
+    return ladder[-1]
+
+
+def parse_memory_mi(mem: str) -> int:
+    """Parse a K8s memory string (e.g. '512Mi', '1Gi') to MiB. 0 on failure."""
+    try:
+        mem = mem.strip()
+        if mem.endswith("Gi"):
+            return int(float(mem[:-2]) * 1024)
+        if mem.endswith("Mi"):
+            return int(float(mem[:-2]))
+        if mem.endswith("Ki"):
+            return int(float(mem[:-2]) / 1024)
+        return int(float(mem))
+    except (ValueError, IndexError):
+        return 0
+
+
+def format_memory(mi: int) -> str:
+    """Format a MiB integer as a K8s memory string (Gi when a whole number)."""
+    if mi >= 1024 and mi % 1024 == 0:
+        return f"{mi // 1024}Gi"
+    return f"{mi}Mi"
+
+
 # ── Built-in profiles ────────────────────────────────────────────────────────
 
 PROFILES: dict[str, ResourceProfile] = {
