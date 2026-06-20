@@ -8,7 +8,8 @@ from unittest.mock import patch
 import pytest
 from rich.console import Console
 
-from launchkit.core.doctor import run_doctor, _get_version, _get_version_args
+from launchkit.core.doctor import run_doctor
+from launchkit.core.tooling import tool_version
 
 
 @pytest.fixture
@@ -38,22 +39,20 @@ class TestRunDoctor:
         assert "Git" in output
 
 
-class TestGetVersion:
+class TestToolVersion:
     def test_known_command(self) -> None:
         """python3 --version should always work."""
-        version = _get_version("python3")
+        version = tool_version("python3")
         assert "Python" in version or "python" in version.lower() or version == "installed"
 
     def test_unknown_command(self) -> None:
-        version = _get_version("nonexistent_binary_xyz")
+        version = tool_version("nonexistent_binary_xyz")
         assert version == "installed"
 
-
-class TestGetVersionArgs:
     def test_custom_args(self) -> None:
-        result = _get_version_args(["python3", "--version"])
+        result = tool_version("python3", ["python3", "--version"])
         assert len(result) > 0
 
     def test_bad_command(self) -> None:
-        result = _get_version_args(["nonexistent_cmd_xyz", "--version"])
+        result = tool_version("nonexistent_cmd_xyz", ["nonexistent_cmd_xyz", "--version"])
         assert result == "installed"

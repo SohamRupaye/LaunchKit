@@ -7,7 +7,7 @@ console = Console()
 
 
 @click.group()
-@click.version_option(package_name="launchkit")
+@click.version_option(package_name="launchkit-cli")
 def main() -> None:
     """LaunchKit — generate Dockerfiles, CI pipelines, and Kubernetes manifests from one config."""
 
@@ -39,11 +39,19 @@ def init(force: bool, path: str, target: str) -> None:
 @click.option("--dry-run", is_flag=True, help="Print output without writing files")
 @click.option("--config", default="launchkit.yaml", show_default=True, help="Config file path")
 @click.option("--env", default=None, help="Environment to generate for (e.g. staging, production)")
-def generate(only: str | None, dry_run: bool, config: str, env: str | None) -> None:
+@click.option("--verify", "do_verify", is_flag=True, help="Run static verification after generating")
+def generate(only: str | None, dry_run: bool, config: str, env: str | None, do_verify: bool) -> None:
     """Generate Dockerfiles, CI pipelines, and Kubernetes manifests."""
     from launchkit.core.engine import GenerateEngine
     engine = GenerateEngine(config_path=config, only=only, dry_run=dry_run, console=console, env=env)
     engine.run()
+
+    if do_verify and not dry_run:
+        from launchkit.core.verify import VerifyEngine
+        console.print()
+        code = VerifyEngine(config_path=config, level="static", console=console).run()
+        if code != 0:
+            raise SystemExit(code)
 
 
 @main.command()
@@ -119,6 +127,38 @@ def lint(config: str) -> None:
 
     if errors > 0:
         raise SystemExit(1)
+
+
+@main.command()
+@click.option("--config", default="launchkit.yaml", show_default=True)
+@click.option(
+    "--level",
+    type=click.Choice(["static", "build", "smoke"], case_sensitive=False),
+    default="static",
+    show_default=True,
+    help="How deep to verify: static (lint+validate), build (docker build), smoke (build+boot+healthcheck)",
+)
+@click.option("--keep", is_flag=True, help="Keep built images/containers for debugging")
+def verify(config: str, level: str, keep: bool) -> None:
+    """Prove the generated output: lint, validate, build, and smoke-test it."""
+    from launchkit.core.verify import VerifyEngine
+    engine = VerifyEngine(config_path=config, level=level, console=console, keep=keep)
+    code = engine.run()
+    if code != 0:
+        raise SystemExit(code)
+
+
+@main.command()
+@click.option("--config", default="launchkit.yaml", show_default=True)
+@click.option("--apply", is_flag=True, help="Write measured resource buckets into launchkit.yaml")
+@click.option("--keep", is_flag=True, help="Keep built images for debugging")
+def measure(config: str, apply: bool, keep: bool) -> None:
+    """Measure real memory usage and set resource requests from observed data."""
+    from launchkit.core.measure import MeasureEngine
+    engine = MeasureEngine(config_path=config, console=console, apply=apply, keep=keep)
+    code = engine.run()
+    if code != 0:
+        raise SystemExit(code)
 
 
 @main.command()

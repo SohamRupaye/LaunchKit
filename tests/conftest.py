@@ -9,6 +9,15 @@ import pytest
 import yaml
 
 
+@pytest.fixture(autouse=True)
+def _reset_template_override():
+    """Ensure the module-level template override never leaks across tests."""
+    from launchkit.utils.templates import set_template_override
+    set_template_override(None)
+    yield
+    set_template_override(None)
+
+
 @pytest.fixture
 def tmp_project(tmp_path: Path) -> Path:
     """Create a minimal temporary project directory."""

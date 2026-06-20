@@ -7,13 +7,29 @@ LaunchKit bridges the gap between _"it works on my machine"_ and _"it runs in pr
 Define your services once. LaunchKit intelligently detects your code, then generates highly-optimized Dockerfiles, Kubernetes manifests, CI/CD pipelines, Nginx proxies, and environment configurations.
 
 ```bash
-pip install launchkit
-launchkit init      # Intelligently detects your stack & scaffolds launchkit.yaml
+pip install launchkit-cli
+launchkit init      # Detects your stack & scaffolds launchkit.yaml
 launchkit generate  # Outputs everything you need to deploy
-launchkit lint      # Catches deployment & configuration pitfalls proactively
+launchkit verify    # PROVES the output: lints, builds, boots, hits /health
+launchkit measure   # Sets resource limits from OBSERVED memory, not a guess
 ```
 
-PyPI publishing is wired up in this repository, but `pip install launchkit` only works after the first release is pushed to PyPI.
+PyPI publishing is wired up in this repository, but `pip install launchkit-cli` only works after the first release is pushed to PyPI.
+
+---
+
+## What makes it different
+
+Most scaffolding tools — and most LLM prompts — *guess*. They emit a plausible Dockerfile with a hardcoded entrypoint and resource numbers pulled from a lookup table, and you find out whether it works by pushing to CI and waiting.
+
+**LaunchKit proves its output instead of guessing it:**
+
+- **`launchkit verify`** doesn't just write files — it runs `hadolint`, validates every K8s manifest (`kubeconform`), **builds the image, boots the container, and hits your healthcheck**. If the generated Dockerfile won't build or the app won't serve, you find out in seconds, with the container logs and a fix hint — not after a CI round-trip.
+- **Real entrypoint detection.** Instead of hardcoding `main:app`, LaunchKit scans your source for the actual ASGI/WSGI callable, Django package, Celery app, or `package.json` start script — and the smoke test proves it boots.
+- **`launchkit measure`** builds and runs each service, observes **real peak memory** under a light load, and sets requests/limits from that — rounded to deterministic buckets. A measured floor an LLM simply cannot give you.
+- **A deployment linter** that encodes real ops expertise: OOMKill risk, silent readiness failures, CPU autoscaling on I/O-bound workers, single-replica production, and (after `measure`) a `memory_limit` below the observed boot peak.
+
+That's the pitch no on-demand LLM can honestly make: *it didn't just write your Dockerfile — it booted it and proved `/health` returns 200.*
 
 ---
 
@@ -52,15 +68,19 @@ launchkit generate
             ├── hpa.yaml          ← Autoscaling config
             ├── ingress.yaml      ← TLS & DNS setup
             └── secrets-hint.yaml ← Secure guidance for secrets management
+    │
+    ▼
+launchkit verify        ← builds the image, boots it, hits /health — proves it works
+launchkit measure       ← observes real memory, sets resource limits from data
 ```
 
-No magic, no backend services, no runtime dependency. LaunchKit is a **Code Generator + Intelligence layer** — the output is plain files you can read, modify, review, and commit.
+No magic, no backend services, no runtime dependency. LaunchKit is a **generator + verification layer** — the output is plain files you can read, modify, review, and commit, and it proves those files actually build and boot.
 
 ---
 
 ## Features (Complexity Eraser)
 
-LaunchKit is now fully at **v0.3**, transitioning from a simple templater to a total **Complexity Eraser**.
+LaunchKit goes beyond templating: it detects, generates, and then **verifies** — building, booting, and measuring the output so you ship files that actually work.
 
 ### Terminal Demo
 
@@ -74,8 +94,8 @@ bash scripts/record_mixed_stack_demo.sh
 
 That script creates a temporary mixed-stack repo, runs `launchkit init`, runs `launchkit generate`, and writes a shareable cast to `demo/launchkit-mixed-stack.cast`.
 
-### 1. Intelligent Auto-Detection (8 Languages Supported)
-`launchkit init` scans your repo, dependencies, and build files.
+### 1. Stack Auto-Detection (8 Languages Supported)
+`launchkit init` scans your dependency and build files (signal-based detection) to identify each service's language and framework, then detects its real start command:
 
 | Language | Recognized Frameworks & Build Tools |
 |----------|-------------------------------------|
@@ -137,27 +157,46 @@ Generated K8s services need an ingress layer. LaunchKit automatically spins up a
 Tired of waiting 40 minutes for all 8 microservices to build because you changed a markdown file?
 LaunchKit generates GitHub Actions and GitLab CI files that compute Git diffs to **only trigger pipelines for the strictly changed services**.
 
-### 8. Auto Resource Profiling
-A Next.js frontend, a Go API, and a Python Machine Learning worker don't scale the same way. LaunchKit analyzes dependencies (like `pytorch`, `pandas`, `sidekiq`) and infers dynamic Kubernetes CPU/RAM requests, limits, and HPA targets depending on process models.
+### 8. Resource Profiling — inferred, then *measured*
+A Next.js frontend, a Go API, and a Python ML worker don't scale the same way. At `init`, LaunchKit picks a starting resource profile from dependency signals (`pytorch`, `pandas`, `sidekiq`, …) — an honest heuristic, not a promise.
+
+Then `launchkit measure` makes it real: it builds and boots each service, observes **peak memory under a light synthetic load**, and rewrites requests/limits from that observation — rounded up to deterministic buckets with headroom, tagged `source: measured`. The measured value is a **floor for catching under-provisioning** (e.g. a `memory_limit` below the boot peak that would OOMKill on startup), not authoritative production sizing — for that, use production traffic and a tool like VPA.
+
+### 9. Verify — proof, not vibes
+`launchkit verify` runs a staged ladder against the generated output. Every external tool self-skips when absent (`launchkit doctor` shows what unlocks more):
+
+| Level | What it does |
+|-------|--------------|
+| `static` | Deployment linter + YAML/manifest validation + `hadolint` + `kubeconform` (or `kubectl --dry-run`) + `docker compose config` |
+| `build`  | `docker build` every service — catches dependency/path bugs |
+| `smoke`  | Runs the container and polls the healthcheck — **proves the start command actually boots a serving app** |
+
+On failure you get the container logs and a concrete fix hint. The generated CI pipeline runs `launchkit verify` too, gating the push job — the tool ships its own proof into your repo.
 
 ---
 
 ## CLI Reference
 
-LaunchKit packs **8 heavily tested commands**:
-
 ```bash
-launchkit init                    # Detects stack & scaffolds launchkit.yaml
+launchkit init                    # Detects stack & scaffolds launchkit.yaml (incl. start command)
 launchkit generate                # Generates all output files
 launchkit generate --env staging  # Generates files specific to 'staging'
 launchkit generate --only docker  # Only generate Dockerfiles
-launchkit diff                    # Dry-run: Show what would change
-launchkit lint                    # Catch deployment & configuration issues Early
-launchkit check / validate        # Validate launchkit.yaml schema natively
-launchkit doctor                  # Check runtime host dependencies safely
+launchkit generate --verify       # Generate, then run static verification
+launchkit verify                  # Prove the output: lint + validate (static)
+launchkit verify --level build    # Also `docker build` every service
+launchkit verify --level smoke    # Also boot the container & hit the healthcheck
+launchkit measure                 # Observe real memory usage (dry-run report)
+launchkit measure --apply         # Write measured resource buckets into launchkit.yaml
+launchkit diff                    # Dry-run: show what would change
+launchkit lint                    # Catch deployment & configuration issues early
+launchkit validate                # Validate launchkit.yaml schema natively
+launchkit doctor                  # Check host tools (docker, kubectl, hadolint, kubeconform…)
 launchkit eject                   # Strip markers, leave pristine files, exit LaunchKit
 launchkit upgrade                 # Re-run intelligence on codebase & get suggestions
 ```
+
+Custom templates: drop a `.j2` with the same relative path into `.launchkit/templates/` to override any generated file without ejecting — `verify` still runs against your override.
 
 ---
 
@@ -165,9 +204,10 @@ launchkit upgrade                 # Re-run intelligence on codebase & get sugges
 
 | Tool | The Trade-off |
 |------|--------------|
+| **Asking an LLM** | Fast, but it *guesses* — a plausible Dockerfile with a hardcoded entrypoint and made-up resource numbers, unverified. LaunchKit detects the real entrypoint, then builds/boots/measures to *prove* it. |
 | **Railway / Render / Fly.io** | Incredible DX, but they own your deployment. You're locked into their platform, bandwidth fees, and lacking deep K8s controls. |
 | **AWS CDK / Pulumi** | Extremely powerful, but commits you to a specific cloud vendor and requires learning complete Infrastructure-as-Code paradigms. |
-| **Helm** | Kubernetes-only templates. Doesn't write your Dockerfiles or CI. |
+| **Helm** | Kubernetes-only templates. Doesn't write your Dockerfiles or CI, and doesn't verify anything builds. |
 | **Copilot (AWS)** | AWS-ECS specific. High friction to migrate out. |
 | **Writing it yourself** | Configuration drift across microservices. Hard to maintain. Takes days of raw YAML authoring per application. |
 
@@ -180,15 +220,15 @@ launchkit upgrade                 # Re-run intelligence on codebase & get sugges
 ```text
 launchkit/
 ├── src/launchkit/
-│   ├── cli.py                    # Click-based robust CLI
-│   ├── core/                     # Intelligence Engines (diff, lint, eject, upgrade)
-│   ├── detectors/                # Base & 8 language ecosystem profilers (deps, frameworks)
-│   ├── generators/               # Docker, K8s, CI, Compose, Secrets, Nginx AST writers
-│   ├── templates/                # Jinja2 definitions
-│   └── utils/                    # Thread-safe CLI Printers
+│   ├── cli.py                    # Click-based CLI
+│   ├── core/                     # Engines: engine, diff, lint, verify, measure, eject, upgrade, doctor, tooling
+│   ├── detectors/                # 8 language profilers + entrypoint + environment + resources
+│   ├── generators/               # Docker, K8s, CI, Compose, Secrets, Nginx writers
+│   ├── templates/                # Jinja2 definitions (overridable via .launchkit/templates/)
+│   └── utils/                    # Template loader + thread-safe CLI printers
 ├── tests/
-│   ├── unit/                     # 240+ automated tests across detectors, parsing, generators
-│   └── integration/
+│   ├── unit/                     # Deterministic tests across detectors, generators, verify, measure
+│   └── integration/             # Full pipeline + docker-gated build/smoke/measure tests
 ├── docs/
 └── examples/
     ├── mixed-stack/              # Python API + Next.js frontend + Go worker repo
@@ -199,7 +239,7 @@ launchkit/
 
 ## Contributing
 
-Contributions are strongly welcomed. The current test suite collects `248 tests`.
+Contributions are strongly welcomed. The current test suite collects `315 tests`.
 
 If you want to help harden LaunchKit against real codebases, use the validation loop in [docs/real-world-validation.md](./docs/real-world-validation.md) and file results with the repo's real-world validation issue template.
 

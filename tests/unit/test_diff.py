@@ -75,10 +75,10 @@ class TestDiffEngine:
     def test_collect_generated_includes_dockerfiles(
         self, sample_config_yaml: Path, quiet_console: Console
     ) -> None:
+        from launchkit.core.diff import collect_generated
         cfg = load_and_validate(str(sample_config_yaml))
         root = sample_config_yaml.parent
-        engine = DiffEngine(config_path=str(sample_config_yaml), console=quiet_console)
-        files = engine._collect_generated(cfg, root)
+        files = collect_generated(cfg, root)
         # Should include at least a Dockerfile and K8s manifests
         paths = [str(p) for p in files.keys()]
         assert any("Dockerfile" in p for p in paths)
